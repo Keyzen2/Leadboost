@@ -1,6 +1,6 @@
 streamlit
 supabase
-pyjwt
 pandas
 requests
-plotly
+altair
+
