@@ -93,21 +93,17 @@ else:
         lead_company = st.text_input("Empresa")
         lead_position = st.text_input("Cargo")
         lead_verified = st.selectbox("Verificado", ["unknown","valid","invalid"])
-        lead_source = st.text_area("Fuente (JSON array) ejemplo: ['hunter.io']", value="['manual']")
+        lead_source_text = st.text_input("¿De dónde obtuviste el lead?", value="Manual")
+        lead_source = [lead_source_text.strip()] if lead_source_text else ["Manual"]
 
         if st.button("Insertar Lead"):
-            try:
-                source_json = json.loads(lead_source)
-            except Exception:
-                st.error("El campo Fuente debe ser un JSON array válido, ejemplo: ['hunter.io']")
-                source_json = []
             try:
                 lead_id = authed.rpc("consume_quota_and_insert_lead", {
                     "p_email": lead_email,
                     "p_company": lead_company,
                     "p_position": lead_position,
                     "p_verified": lead_verified,
-                    "p_source": source_json
+                    "p_source": lead_source
                 }).execute()
                 if lead_id.data:
                     st.success(f"Lead insertado con ID: {lead_id.data}")
@@ -139,9 +135,9 @@ else:
                 errors = []
                 for idx, row in df.iterrows():
                     try:
-                        source = row.get("source", ["csv"])
-                        if isinstance(source, str):
-                            source = json.loads(source) if source.startswith("[") else [source]
+                        source = row.get("source", "CSV")
+                        if not isinstance(source, list):
+                            source = [str(source)]
                         lead_id = authed.rpc("consume_quota_and_insert_lead", {
                             "p_email": row["email"],
                             "p_company": row["company"],
@@ -175,4 +171,5 @@ else:
         st.altair_chart(chart_empresas, use_container_width=True)
     else:
         st.info("No tienes leads aún.")
+
 
