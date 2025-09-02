@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 import json
+import altair as alt
 from supabase import create_client, Client
+from datetime import datetime
 
 # --- Config ---
 url = st.secrets["SUPABASE_URL"]
@@ -78,23 +80,57 @@ else:
     if menu == "Main":
         st.subheader("Resumen Principal")
         st.write(f"Plan: {profile['plan']} | Cuota usada: {profile['used_quota']}/{profile['monthly_quota']}")
-        leads = authed.table("leads").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(5).execute().data
+
+        # Mini gráficos rápidos
+        leads = authed.table("leads").select("*").eq("user_id", user_id).order("created_at", desc=True).execute().data
         if leads:
-            st.write("Últimos leads insertados:")
-            st.dataframe(pd.DataFrame(leads))
+            df = pd.DataFrame(leads)
+            st.write("Últimos 5 leads:")
+            st.dataframe(df.head(5))
+
+            # Gráfico leads por estado de verificación
+            ver_chart = alt.Chart(df).mark_bar().encode(
+                x='verified:N',
+                y='count()',
+                color='verified:N'
+            )
+            st.altair_chart(ver_chart, use_container_width=True)
         else:
             st.info("No tienes leads aún.")
+
+        # Botón upgrade freemium -> premium
+        if profile['role'] == 'freemium':
+            if st.button("Actualizar a Premium"):
+                authed.rpc("upgrade_to_premium").execute()
+                st.success("Ahora eres Premium con 500 búsquedas/mes")
+                st.experimental_rerun()
 
     # --- Análisis ---
     elif menu == "Análisis":
         st.subheader("Análisis de Leads")
         leads = authed.table("leads").select("*").eq("user_id", user_id).execute().data
         if leads:
-            df_leads = pd.DataFrame(leads)
-            top_empresas = df_leads['company'].value_counts().head(10).reset_index()
-            st.bar_chart(top_empresas.rename(columns={"index":"Empresa", "company":"Cantidad"}).set_index("Empresa"))
-            st.write("Leads verificados por estado:")
-            st.bar_chart(df_leads['verified'].value_counts())
+            df = pd.DataFrame(leads)
+            # Top 10 empresas
+            top_empresas = df['company'].value_counts().head(10).reset_index().rename(columns={"index":"Empresa","company":"Cantidad"})
+            chart_empresas = alt.Chart(top_empresas).mark_bar(color="#1f77b4").encode(
+                x='Empresa:N', y='Cantidad:Q'
+            )
+            st.altair_chart(chart_empresas, use_container_width=True)
+
+            # Leads verificados
+            verified_chart = alt.Chart(df).mark_bar(color="#2ca02c").encode(
+                x='verified:N', y='count()'
+            )
+            st.altair_chart(verified_chart, use_container_width=True)
+
+            # Evolución mensual
+            df['month'] = pd.to_datetime(df['created_at']).dt.to_period('M')
+            monthly = df.groupby('month').size().reset_index(name='Cantidad')
+            monthly_chart = alt.Chart(monthly).mark_line(point=True).encode(
+                x='month:T', y='Cantidad:Q'
+            )
+            st.altair_chart(monthly_chart, use_container_width=True)
         else:
             st.info("No hay leads para analizar.")
 
