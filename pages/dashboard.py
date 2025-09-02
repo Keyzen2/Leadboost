@@ -1,22 +1,22 @@
 import streamlit as st
+from utils import supabase
 import pandas as pd
-import plotly.express as px
-from utils import load_leads
+import altair as alt
 
-st.title("Dashboard de Leads")
+def show_dashboard(user_email):
+    st.header("Dashboard")
+    leads = supabase.table("leads").select("*").execute().data
+    df = pd.DataFrame(leads)
+    if df.empty:
+        st.info("No hay leads aún")
+        return
+    st.subheader("Leads por Empresa")
+    chart = alt.Chart(df).mark_bar().encode(
+        x='company:N', y='count()'
+    )
+    st.altair_chart(chart, use_container_width=True)
 
-leads = load_leads()
-if not leads.empty:
-    st.metric("Total Leads", len(leads))
-    st.metric("Leads recientes", leads['created_at'].max())
-    
-    fig_company = px.bar(leads.groupby("company").size().reset_index(name="count"), x="company", y="count", title="Leads por Empresa")
-    st.plotly_chart(fig_company)
+    st.subheader("Emails Verificados vs No Verificados")
+    verificados = df['verified'].value_counts().reset_index()
+    st.bar_chart(verificados.set_index('index'))
 
-    fig_title = px.bar(leads.groupby("title").size().reset_index(name="count"), x="title", y="count", title="Leads por Cargo")
-    st.plotly_chart(fig_title)
-
-    st.write("Últimos Leads:")
-    st.dataframe(leads.sort_values("created_at", ascending=False).head(10))
-else:
-    st.info("No hay leads aún.")
