@@ -424,19 +424,3 @@ elif menu == "Users":
                                     st.error(f"No se pudo desactivar: {e}")
                             else:
                                 st.warning("Marca confirmar desactivación antes de proceder.")
-
-# -----------------------
-# Footer de versión y tips
-# -----------------------
-st.markdown("---")
-st.markdown(
-    """
-    **LeadBoost v3.1** — Compilación: 2025-09-02  
-    ⚡ Tips rápidos:  
-    - Usa el CSV de ejemplo para importar correctamente los campos.  
-    - Los admins pueden gestionar roles y cuotas desde 'Users'.  
-    - Al añadir leads manualmente, indica siempre la fuente del lead.  
-    - Si hay errores, revisa consola de Supabase o contacta soporte.  
-    """
-)
-
