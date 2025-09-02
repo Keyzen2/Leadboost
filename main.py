@@ -426,11 +426,17 @@ elif menu == "Users":
                                 st.warning("Marca confirmar desactivación antes de proceder.")
 
 # -----------------------
-# Fin
+# Footer de versión y tips
 # -----------------------
-# Footer / small help
 st.markdown("---")
-st.write("¿Necesitas ayuda? Resumen de tips:")
-st.write("- Usa el CSV de ejemplo para importar correctamente los campos.")
-st.write("- Los admins pueden gestionar roles y cuotas desde 'Users'.")
+st.markdown(
+    """
+    **LeadBoost v3.1** — Compilación: 2025-09-02  
+    ⚡ Tips rápidos:  
+    - Usa el CSV de ejemplo para importar correctamente los campos.  
+    - Los admins pueden gestionar roles y cuotas desde 'Users'.  
+    - Al añadir leads manualmente, indica siempre la fuente del lead.  
+    - Si hay errores, revisa consola de Supabase o contacta soporte.  
+    """
+)
 
