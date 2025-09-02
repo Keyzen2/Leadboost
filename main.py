@@ -8,6 +8,7 @@ import altair as alt
 url = st.secrets["SUPABASE_URL"]
 anon = st.secrets["SUPABASE_KEY"]
 invite_code_secret = st.secrets["INVITE_CODE"]
+hunter_key = st.secrets.get("HUNTER_KEY", "")
 
 supabase: Client = create_client(url, anon)
 
@@ -92,11 +93,15 @@ else:
         lead_company = st.text_input("Empresa")
         lead_position = st.text_input("Cargo")
         lead_verified = st.selectbox("Verificado", ["unknown","valid","invalid"])
-        lead_source = st.text_area("Fuente (JSON array) ejemplo: ['hunter.io']")
+        lead_source = st.text_area("Fuente (JSON array) ejemplo: ['hunter.io']", value="['manual']")
 
         if st.button("Insertar Lead"):
             try:
-                source_json = json.loads(lead_source) if lead_source else []
+                source_json = json.loads(lead_source)
+            except Exception:
+                st.error("El campo Fuente debe ser un JSON array válido, ejemplo: ['hunter.io']")
+                source_json = []
+            try:
                 lead_id = authed.rpc("consume_quota_and_insert_lead", {
                     "p_email": lead_email,
                     "p_company": lead_company,
@@ -104,7 +109,10 @@ else:
                     "p_verified": lead_verified,
                     "p_source": source_json
                 }).execute()
-                st.success(f"Lead insertado con ID: {lead_id.data}")
+                if lead_id.data:
+                    st.success(f"Lead insertado con ID: {lead_id.data}")
+                else:
+                    st.warning("Lead insertado, pero no se devolvió ID")
             except Exception as e:
                 st.error(f"No se pudo insertar el lead: {e}")
 
@@ -131,12 +139,15 @@ else:
                 errors = []
                 for idx, row in df.iterrows():
                     try:
+                        source = row.get("source", ["csv"])
+                        if isinstance(source, str):
+                            source = json.loads(source) if source.startswith("[") else [source]
                         lead_id = authed.rpc("consume_quota_and_insert_lead", {
                             "p_email": row["email"],
                             "p_company": row["company"],
                             "p_position": row.get("position",""),
                             "p_verified": row.get("verified","unknown"),
-                            "p_source": json.dumps(row.get("source",["csv"]))
+                            "p_source": source
                         }).execute()
                         inserted += 1
                     except Exception as e:
