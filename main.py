@@ -1,4 +1,4 @@
-# main.py v3.1 - LeadBoost (integrado, seguro y con mejoras UX)
+# main.py v3.1 - LeadBoost (completo y limpio)
 import streamlit as st
 import pandas as pd
 import json
@@ -26,7 +26,6 @@ def is_valid_email(e: str):
     return bool(e and EMAIL_RE.match(e.strip()))
 
 def log_action(user_id: str, action: str, details: dict = None):
-    """Intenta insertar un log en la tabla audit_logs (si existe). No falla si no existe."""
     try:
         supabase.table("audit_logs").insert({
             "user_id": user_id,
@@ -35,18 +34,17 @@ def log_action(user_id: str, action: str, details: dict = None):
             "created_at": datetime.utcnow().isoformat()
         }).execute()
     except Exception:
-        pass  # silencioso
+        pass
 
 def get_authed_client():
     session = st.session_state.get("session")
     client = create_client(URL, ANON_KEY)
     if session:
-        # attach jwt so RLS works
         client.postgrest.auth(session.access_token)
     return client
 
 # -----------------------
-# Auth functions (signup/login/logout)
+# Auth functions
 # -----------------------
 def signup(email, password, invite_code):
     email = (email or "").strip().lower()
@@ -57,10 +55,9 @@ def signup(email, password, invite_code):
     try:
         res = supabase.auth.sign_up({"email": email, "password": password})
         if getattr(res, "user", None):
-            # profile created by auth trigger in DB earlier (if you have one)
             log_action(res.user.id, "signup", {"email": email})
-            return True, "Registro correcto. Revisa tu email si está activada la confirmación."
-        return False, "No se pudo crear el usuario (verifica consola de Supabase)."
+            return True, "Registro correcto. Revisa tu email."
+        return False, "No se pudo crear el usuario."
     except Exception as e:
         return False, f"Error al registrar: {e}"
 
@@ -70,7 +67,6 @@ def login(email, password):
         return None, "Email inválido"
     try:
         res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-        # res.session y res.user usados en tus versiones previas
         if getattr(res, "session", None) and getattr(res, "user", None):
             log_action(res.session.user.id, "login", {"email": email})
             return res.session, None
@@ -79,13 +75,12 @@ def login(email, password):
         return None, f"Error al iniciar sesión: {e}"
 
 def logout():
-    # limpiar sesión local; no dependemos del sign_out remoto para evitar issues de contexto
     st.session_state.session = None
-    st.success("Sesión cerrada correctamente")
+    st.success("Sesión cerrada")
     st.experimental_rerun()
 
 # -----------------------
-# DB helpers (profiles / leads)
+# DB helpers
 # -----------------------
 def fetch_profile(authed, user_id):
     try:
@@ -102,7 +97,6 @@ def fetch_recent_leads(authed, user_id, limit=5):
         return []
 
 def insert_lead_rpc(authed, email, company, position, verified, source_list):
-    """Llama a la RPC consume_quota_and_insert_lead y devuelve (ok, mensaje)."""
     try:
         payload = {
             "p_email": email,
@@ -114,11 +108,10 @@ def insert_lead_rpc(authed, email, company, position, verified, source_list):
         res = authed.rpc("consume_quota_and_insert_lead", payload).execute()
         return True, res.data
     except Exception as e:
-        # Postgrest devuelve dict parecido a {'message':..., 'code':...}
         return False, str(e)
 
 # -----------------------
-# Utility: ejemplo CSV y descarga
+# CSV ejemplo
 # -----------------------
 def ejemplo_csv_bytes():
     sample = pd.DataFrame([{
@@ -141,7 +134,7 @@ if "session" not in st.session_state:
     st.session_state.session = None
 
 # -----------------------
-# UI: Login / Signup
+# Login / Signup UI
 # -----------------------
 if st.session_state.session is None:
     st.title("🔐 LeadBoost — Iniciar sesión / Registrarse")
@@ -164,7 +157,7 @@ if st.session_state.session is None:
                     st.error("No se pudo iniciar sesión correctamente")
 
     with col2:
-        st.header("📝 Registrarse (con código de invitación)")
+        st.header("📝 Registrarse")
         reg_email = st.text_input("Email", key="reg_email")
         reg_pass = st.text_input("Contraseña", type="password", key="reg_pass")
         reg_invite = st.text_input("Código de invitación", key="reg_invite")
@@ -172,41 +165,36 @@ if st.session_state.session is None:
             ok, msg = signup(reg_email, reg_pass, reg_invite)
             if ok:
                 st.success(msg)
-                st.info("Ahora puedes iniciar sesión con tus credenciales.")
+                st.info("Ahora puedes iniciar sesión.")
             else:
                 st.error(msg)
 
     st.markdown("---")
-    st.info("Si tienes problemas con el login, revisa la consola de Supabase o contacta con soporte.")
+    st.info("Si tienes problemas con el login, contacta con soporte.")
     st.stop()
 
 # -----------------------
-# Usuario autenticado: main app
+# Main App
 # -----------------------
 authed = get_authed_client()
 user_id = st.session_state.session.user.id
 profile = fetch_profile(authed, user_id) or {}
 
-# Bienvenida y sidebar
 st.sidebar.success(f"Conectado: {st.session_state.session.user.email}")
 if st.sidebar.button("Cerrar sesión"):
-    # cerrar sesión localmente y recargar
     st.session_state.session = None
     st.success("Sesión cerrada")
     st.experimental_rerun()
 
-# Menu lateral funcional
 menu = st.sidebar.radio("Menú", ["Main", "Análisis", "Dashboard", "Upload", "Users"])
 
-# Mensaje de bienvenida con tip según plan
 st.write(f"👋 Bienvenido, {st.session_state.session.user.email}!")
 plan = profile.get("plan", "Freemium")
 used = profile.get("used_quota", 0)
 monthly = profile.get("monthly_quota", 25)
 st.write(f"Plan: **{plan}** — Cuota usada: **{used}/{monthly}** búsquedas")
-
 if plan.lower().startswith("freemium"):
-    st.info("Estás en Freemium. Considera actualizar a Premium para más cuota y funciones.")
+    st.info("Estás en Freemium. Considera actualizar a Premium.")
 
 # -----------------------
 # MAIN
@@ -218,16 +206,14 @@ if menu == "Main":
         df_recent = pd.DataFrame(recent)
         st.subheader("Últimos leads")
         st.dataframe(df_recent)
-        # mini gráfico verificados
         if "verified" in df_recent.columns:
             chart = alt.Chart(df_recent).mark_bar().encode(
                 x='verified:N', y='count()', color='verified:N'
             )
             st.altair_chart(chart, use_container_width=True)
     else:
-        st.info("Aún no tienes leads. Empieza subiendo un CSV o creando un lead individual.")
-
-    # Upgrade quick button
+        st.info("Aún no tienes leads.")
+    # Botón Upgrade rápido
     if profile.get("role") == "freemium":
         if st.button("🔼 Actualizar a Premium (500 búsquedas/mes)"):
             try:
@@ -239,7 +225,7 @@ if menu == "Main":
                 st.error(f"No se pudo actualizar: {e}")
 
 # -----------------------
-# ANALISIS
+# ANÁLISIS
 # -----------------------
 elif menu == "Análisis":
     st.header("📈 Análisis de Leads")
@@ -259,12 +245,11 @@ elif menu == "Análisis":
         if "created_at" in df.columns:
             df['month'] = pd.to_datetime(df['created_at']).dt.to_period('M')
             monthly = df.groupby('month').size().reset_index(name='Cantidad')
-            # convert period to string for plotting
             monthly['month'] = monthly['month'].astype(str)
             st.altair_chart(alt.Chart(monthly).mark_line(point=True).encode(x='month:T', y='Cantidad:Q'), use_container_width=True)
 
 # -----------------------
-# DASHBOARD - crear lead individual (usa RPC)
+# DASHBOARD
 # -----------------------
 elif menu == "Dashboard":
     st.header("➕ Añadir Lead Individual")
@@ -289,12 +274,11 @@ elif menu == "Dashboard":
                 st.error(f"No se pudo insertar el lead: {res}")
 
 # -----------------------
-# UPLOAD CSV - con descarga de ejemplo
+# UPLOAD
 # -----------------------
 elif menu == "Upload":
     st.header("📤 Subida de Leads desde CSV")
-    st.info("Tip: el CSV debe contener columnas mínimas: 'company', 'contact_name', 'email'. Opcionales: 'phone', 'source', 'verified'.")
-    # botón para descargar CSV de ejemplo
+    st.info("Tip: el CSV debe contener columnas mínimas: 'company', 'contact_name', 'email'.")
     csv_bytes = ejemplo_csv_bytes()
     st.download_button("⬇️ Descargar CSV de ejemplo", data=csv_bytes, file_name="ejemplo_leads.csv", mime="text/csv")
     uploaded = st.file_uploader("Selecciona un CSV", type=["csv"])
@@ -304,19 +288,13 @@ elif menu == "Upload":
         except Exception as e:
             st.error(f"Error leyendo CSV: {e}")
             st.stop()
-
-        # Normalizar nombres de columnas aceptadas
-        df_columns = [c.strip() for c in df.columns]
-        df.columns = df_columns
-
+        df.columns = [c.strip() for c in df.columns]
         required = {"company", "contact_name", "email"}
         if not required.issubset(set(df.columns)):
             st.error(f"El CSV debe contener al menos las columnas: {sorted(required)}")
             st.stop()
-
         st.subheader("Preview (primeras 10 filas)")
         st.dataframe(df.head(10))
-
         if st.button("📥 Insertar todos los leads"):
             inserted = 0
             errors = []
@@ -329,12 +307,7 @@ elif menu == "Upload":
                 name = str(row.get("contact_name", "")).strip()
                 phone = str(row.get("phone", "")).strip() if "phone" in row else ""
                 source = row.get("source", "CSV")
-                if isinstance(source, str):
-                    source_list = [source.strip()] if source.strip() else ["CSV"]
-                elif isinstance(source, list):
-                    source_list = source
-                else:
-                    source_list = ["CSV"]
+                source_list = [source.strip()] if isinstance(source, str) and source.strip() else ["CSV"]
                 verified = row.get("verified", "unknown")
                 ok, res = insert_lead_rpc(authed, e, company, name, verified, source_list)
                 if ok:
@@ -349,15 +322,13 @@ elif menu == "Upload":
                     st.text(err)
 
 # -----------------------
-# USERS - Admin management
+# USERS / ADMIN
 # -----------------------
 elif menu == "Users":
     st.header("🛠️ Gestión de Usuarios (Admin)")
-    # comprobar rol
     if profile.get("role") != "admin":
         st.warning("No tienes permisos para ver esta sección.")
     else:
-        # cargar usuarios
         try:
             users = authed.table("profiles").select("*").order("created_at", desc=True).execute().data or []
             if not users:
@@ -366,17 +337,14 @@ elif menu == "Users":
                 df_users = pd.DataFrame(users)
                 st.subheader("Usuarios registrados")
                 st.dataframe(df_users)
-
                 st.markdown("---")
                 st.markdown("### ✏️ Editar usuario")
                 selected_email = st.selectbox("Selecciona usuario", df_users["email"])
                 sel = df_users[df_users["email"] == selected_email].iloc[0]
-
                 st.write(f"**Email:** {sel['email']}")
                 new_role = st.selectbox("Nuevo rol", ["freemium", "premium", "admin"], index=["freemium","premium","admin"].index(sel.get("role","freemium")))
                 new_active = st.checkbox("Activo", value=sel.get("active", True))
                 new_quota = st.number_input("Cuota mensual", min_value=0, value=int(sel.get("monthly_quota", 25)), step=25)
-
                 st.markdown("**Confirmar cambios**")
                 confirm = st.checkbox("Marcar para confirmar los cambios")
                 if st.button("Guardar cambios") and confirm:
@@ -391,36 +359,13 @@ elif menu == "Users":
                         st.experimental_rerun()
                     except Exception as e:
                         st.error(f"No se pudo guardar: {e}")
+        except Exception as e:
+            st.error(f"No se pudieron cargar usuarios: {e}")
 
-                st.markdown("---")
-                st.markdown("### ⚠️ Acciones rápidas")
-                col1, col2 = st.columns(2)
-                with col1:
-                    email_quick = st.text_input("Email para rol rápido (ej: cambiar a admin)")
-                    role_quick = st.selectbox("Rol rápido", ["freemium","premium","admin"], key="role_quick")
-                    if st.button("Aplicar rol rápido"):
-                        if email_quick:
-                            try:
-                                authed.table("profiles").update({"role": role_quick}).eq("email", email_quick).execute()
-                                log_action(user_id, "admin_quick_role", {"target": email_quick, "role": role_quick})
-                                st.success(f"Rol actualizado a {role_quick} para {email_quick}")
-                                st.experimental_rerun()
-                            except Exception as e:
-                                st.error(f"No se pudo actualizar rol: {e}")
-                        else:
-                            st.warning("Introduce un email válido.")
-                with col2:
-                    email_del = st.text_input("Email para desactivar")
-                    if st.button("Desactivar usuario"):
-                        if email_del:
-                            confirm_del = st.checkbox("Confirmar desactivación", key="confirm_del")
-                            if confirm_del:
-                                try:
-                                    authed.table("profiles").update({"active": False}).eq("email", email_del).execute()
-                                    log_action(user_id, "admin_deactivate", {"target": email_del})
-                                    st.success(f"Usuario {email_del} desactivado.")
-                                    st.experimental_rerun()
-                                except Exception as e:
-                                    st.error(f"No se pudo desactivar: {e}")
-                            else:
-                                st.warning("Marca confirmar desactivación antes de proceder.")
+# -----------------------
+# Footer
+# -----------------------
+st.markdown("---")
+st.write("¿Necesitas ayuda? Resumen de tips:")
+st.write("- Usa el CSV de ejemplo para importar correctamente los campos.")
+st.write("- Los admins pueden gestionar roles y cuotas desde 'Users'.")
