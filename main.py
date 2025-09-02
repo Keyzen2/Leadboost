@@ -2,13 +2,11 @@ import streamlit as st
 import pandas as pd
 import json
 from supabase import create_client, Client
-import altair as alt
 
 # --- Config ---
 url = st.secrets["SUPABASE_URL"]
 anon = st.secrets["SUPABASE_KEY"]
 invite_code_secret = st.secrets["INVITE_CODE"]
-hunter_key = st.secrets.get("HUNTER_KEY", "")
 
 supabase: Client = create_client(url, anon)
 
@@ -38,7 +36,7 @@ def get_authed_client():
 if "session" not in st.session_state:
     st.session_state.session = None
 
-# --- UI Tabs ---
+# --- Login / Registro ---
 if st.session_state.session is None:
     tab_login, tab_signup = st.tabs(["🔑 Iniciar sesión", "📝 Registrarse"])
 
@@ -63,9 +61,9 @@ if st.session_state.session is None:
             st.success(msg) if ok else st.error(msg)
 
 else:
-    # --- Usuario autenticado ---
     authed = get_authed_client()
     user_id = st.session_state.session.user.id
+    profile = authed.table("profiles").select("*").eq("id", user_id).single().execute().data
 
     st.sidebar.success(f"Conectado: {st.session_state.session.user.email}")
     if st.sidebar.button("Cerrar sesión"):
@@ -73,21 +71,35 @@ else:
         st.session_state.session = None
         st.experimental_rerun()
 
-    # --- Perfil y Upgrade ---
-    profile = authed.table("profiles").select("*").eq("id", user_id).single().execute().data
-    st.subheader(f"Tu plan: {profile['plan']} | Cuota usada: {profile['used_quota']}/{profile['monthly_quota']}")
+    # --- Sidebar funcional ---
+    menu = st.sidebar.radio("Menú", ["Main", "Análisis", "Dashboard", "Upload", "Users"])
 
-    if profile["role"]=="freemium":
-        if st.button("Actualizar a Premium"):
-            authed.rpc("upgrade_to_premium").execute()
-            st.success("Ahora eres Premium con 500 búsquedas/mes")
-            st.experimental_rerun()
+    # --- Main ---
+    if menu == "Main":
+        st.subheader("Resumen Principal")
+        st.write(f"Plan: {profile['plan']} | Cuota usada: {profile['used_quota']}/{profile['monthly_quota']}")
+        leads = authed.table("leads").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(5).execute().data
+        if leads:
+            st.write("Últimos leads insertados:")
+            st.dataframe(pd.DataFrame(leads))
+        else:
+            st.info("No tienes leads aún.")
 
-    # --- Tabs internos: Dashboard y CSV Upload ---
-    tab_dashboard, tab_csv = st.tabs(["📋 Dashboard / Insert Lead", "📤 Subir CSV"])
+    # --- Análisis ---
+    elif menu == "Análisis":
+        st.subheader("Análisis de Leads")
+        leads = authed.table("leads").select("*").eq("user_id", user_id).execute().data
+        if leads:
+            df_leads = pd.DataFrame(leads)
+            top_empresas = df_leads['company'].value_counts().head(10).reset_index()
+            st.bar_chart(top_empresas.rename(columns={"index":"Empresa", "company":"Cantidad"}).set_index("Empresa"))
+            st.write("Leads verificados por estado:")
+            st.bar_chart(df_leads['verified'].value_counts())
+        else:
+            st.info("No hay leads para analizar.")
 
-    # --- Dashboard / Insert Lead individual ---
-    with tab_dashboard:
+    # --- Dashboard: añadir lead individual ---
+    elif menu == "Dashboard":
         st.subheader("Añadir Lead Individual")
         lead_email = st.text_input("Email del lead")
         lead_company = st.text_input("Empresa")
@@ -95,7 +107,6 @@ else:
         lead_verified = st.selectbox("Verificado", ["unknown","valid","invalid"])
         lead_source_text = st.text_input("¿De dónde obtuviste el lead?", value="Manual")
         lead_source = [lead_source_text.strip()] if lead_source_text else ["Manual"]
-
         if st.button("Insertar Lead"):
             try:
                 lead_id = authed.rpc("consume_quota_and_insert_lead", {
@@ -105,40 +116,28 @@ else:
                     "p_verified": lead_verified,
                     "p_source": lead_source
                 }).execute()
-                if lead_id.data:
-                    st.success(f"Lead insertado con ID: {lead_id.data}")
-                else:
-                    st.warning("Lead insertado, pero no se devolvió ID")
+                st.success(f"Lead insertado con ID: {lead_id.data}")
             except Exception as e:
                 st.error(f"No se pudo insertar el lead: {e}")
 
-    # --- Subida CSV ---
-    with tab_csv:
+    # --- Upload CSV ---
+    elif menu == "Upload":
         st.subheader("Subida de Leads desde CSV")
         uploaded_file = st.file_uploader("Selecciona un CSV", type=["csv"])
         if uploaded_file:
-            try:
-                df = pd.read_csv(uploaded_file)
-            except Exception as e:
-                st.error(f"Error leyendo CSV: {e}")
-                st.stop()
-
+            df = pd.read_csv(uploaded_file)
             expected_cols = ["email", "company", "position"]
             if not all(col in df.columns for col in expected_cols):
-                st.error(f"El CSV debe contener estas columnas: {expected_cols}")
+                st.error(f"El CSV debe contener columnas: {expected_cols}")
                 st.stop()
-
-            st.info(f"Archivo cargado: {len(df)} filas")
-
             if st.button("Insertar todos los leads"):
-                inserted = 0
-                errors = []
+                inserted, errors = 0, []
                 for idx, row in df.iterrows():
                     try:
                         source = row.get("source", "CSV")
                         if not isinstance(source, list):
                             source = [str(source)]
-                        lead_id = authed.rpc("consume_quota_and_insert_lead", {
+                        authed.rpc("consume_quota_and_insert_lead", {
                             "p_email": row["email"],
                             "p_company": row["company"],
                             "p_position": row.get("position",""),
@@ -148,28 +147,23 @@ else:
                         inserted += 1
                     except Exception as e:
                         errors.append(f"Fila {idx+1}: {e}")
-
                 st.success(f"Leads insertados correctamente: {inserted}")
                 if errors:
                     st.warning("Errores durante la inserción:")
                     for err in errors:
                         st.text(err)
-
             st.subheader("Preview del CSV")
             st.dataframe(df.head(20))
 
-    # --- Visualización Leads ---
-    st.subheader("Tus Leads")
-    leads = authed.table("leads").select("*").order("created_at", desc=True).limit(50).execute().data
-    if leads:
-        df_leads = pd.DataFrame(leads)
-        st.dataframe(df_leads)
-        top_empresas = df_leads['company'].value_counts().head(10).reset_index()
-        chart_empresas = alt.Chart(top_empresas).mark_bar(color="#1f77b4").encode(
-            x='index:N', y='company:Q'
-        )
-        st.altair_chart(chart_empresas, use_container_width=True)
-    else:
-        st.info("No tienes leads aún.")
+    # --- Users (solo admin) ---
+    elif menu == "Users":
+        st.subheader("Gestión de Usuarios (Admin)")
+        if profile["role"] == "admin":
+            users = authed.table("profiles").select("*").execute().data
+            df_users = pd.DataFrame(users)
+            st.dataframe(df_users)
+            st.info("Aquí puedes implementar cambios de rol o upgrade de plan.")
+        else:
+            st.warning("No tienes permisos para ver esta sección.")
 
 
