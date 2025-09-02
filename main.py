@@ -1,42 +1,38 @@
 import streamlit as st
-from utils import get_user, create_user, update_plan, INVITE_CODE
+from utils import get_user, update_quota
 
-st.set_page_config(page_title="Enriquecimiento de Leads", layout="wide")
+st.set_page_config(page_title="LeadBoost Hunter", layout="wide")
 
-# --- Layout: sidebar ---
-st.sidebar.title("Menú")
-menu = st.sidebar.radio("Navegación", ["Dashboard", "Subida de Leads", "Análisis", "Usuarios (Admin)"])
+st.title("LeadBoost Hunter.io")
 
-# --- Login / Registro ---
-st.title("Login o Registro")
-option = st.radio("Elige:", ["Login", "Registro"])
+# Login o registro con código de invitación
 email = st.text_input("Email")
-password = st.text_input("Contraseña", type="password")
+password = st.text_input("Password", type="password")
+invite = st.text_input("Código de invitación")
 
-if option == "Registro":
-    code = st.text_input("Código de invitación")
-    if st.button("Registrarse"):
-        if code == INVITE_CODE:
-            create_user(email)
-            st.success("Usuario creado. Comprueba tu email.")
+if st.button("Login / Registro"):
+    if invite != st.secrets["INVITE_CODE"]:
+        st.error("Código de invitación incorrecto")
+    else:
+        user = get_user(email)
+        if not user:
+            # Crear usuario Freemium con cuota inicial 25
+            supabase.table("users").insert({"email": email, "role":"freemium","quota":25}).execute()
+            st.success("Usuario registrado como Freemium")
         else:
-            st.error("Código de invitación inválido")
+            st.success(f"Bienvenido {email}")
+        st.session_state["user"] = email
 
-elif option == "Login":
-    # Para simplificar usamos solo validación básica
-    user = get_user(email)
-    if st.button("Acceder"):
-        if user:
-            st.success(f"Bienvenido {email} - Plan: {user['plan']}")
-            
-            # Botón de upgrade
-            if user['plan'].lower() == "freemium":
-                if st.button("Actualizar a Premium"):
-                    update_plan(email, "Premium")
-                    st.success("Ahora eres Premium!")
+if "user" in st.session_state:
+    st.sidebar.title("Menú")
+    page = st.sidebar.radio("Navegación", ["Dashboard", "Subida de Leads", "Usuarios (Admin)"])
 
-            # Redirigir al menú
-            st.session_state['user'] = user
-            st.session_state['email'] = email
-        else:
-            st.error("Usuario no encontrado")
+    if page == "Dashboard":
+        import pages.dashboard as dashboard
+        dashboard.show_dashboard(st.session_state["user"])
+    elif page == "Subida de Leads":
+        import pages.upload as upload
+        upload.show_upload(st.session_state["user"])
+    elif page == "Usuarios (Admin)":
+        import pages.users as users
+        users.show_users()
