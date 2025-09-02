@@ -433,3 +433,4 @@ st.markdown("---")
 st.write("¿Necesitas ayuda? Resumen de tips:")
 st.write("- Usa el CSV de ejemplo para importar correctamente los campos.")
 st.write("- Los admins pueden gestionar roles y cuotas desde 'Users'.")
+
