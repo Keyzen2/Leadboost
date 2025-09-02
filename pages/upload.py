@@ -1,25 +1,19 @@
 import streamlit as st
 import pandas as pd
-from utils import enrich_email, save_lead, get_user, increment_quota
+from utils import enrich_email, update_quota, supabase
 
-st.title("Subida de Leads")
-
-uploaded_file = st.file_uploader("Sube un CSV con correos", type="csv")
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    st.dataframe(df.head())
-
-    if st.button("Enriquecer Leads"):
-        user = get_user(st.session_state['email'])
-        results = []
-        for email_row in df['email']:
-            if user['used_quota'] >= user['monthly_quota']:
-                st.warning("Has alcanzado tu límite mensual")
+def show_upload(user_email):
+    st.header("Subida de Leads")
+    uploaded_file = st.file_uploader("Sube tu CSV de emails", type="csv")
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        enriched_data = []
+        for index, row in df.iterrows():
+            if update_quota(user_email, 1) is not None:
+                enriched = enrich_email(row['email'])
+                enriched_data.append(enriched)
+                supabase.table("leads").insert(enriched).execute()
+            else:
+                st.warning("Has alcanzado tu cuota mensual")
                 break
-            enriched = enrich_email(email_row)
-            enriched['email'] = email_row
-            save_lead(enriched)
-            increment_quota(user['email'])
-            results.append(enriched)
-        st.success("Leads enriquecidos y guardados")
-        st.dataframe(pd.DataFrame(results))
+        st.write(pd.DataFrame(enriched_data))
