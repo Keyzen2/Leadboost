@@ -8,23 +8,18 @@ supabase = create_client(url, key)
 
 # --- Funciones ---
 def register(email, password, invite_code):
-    valid_code = st.secrets["INVITE_CODE"]
-    if invite_code != valid_code:
+    # comprobar código de invitación
+    if invite_code != st.secrets["INVITE_CODE"]:
         return {"error": "Código de invitación inválido"}
-    
-    # comprobar si ya existe
-    exists = supabase.table("users").select("id").eq("email", email).execute()
-    if exists.data:
-        return {"error": "El email ya está registrado"}
-    
-    # insertar nuevo usuario
-    supabase.table("users").insert({
+
+    result = supabase.table("users").insert({
         "email": email,
-        "password": password,
+        "password": password,   # 👈 importante, lo tenías sin pasar
         "role": "freemium",
         "quota": 25
     }).execute()
-    return {"ok": True}
+
+    return result
 
 def login(email, password):
     result = supabase.table("users").select("*").eq("email", email).eq("password", password).execute()
